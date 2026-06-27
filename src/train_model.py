@@ -11,11 +11,14 @@ from .model_config import (
     ABLATION_GROUPS,
     FEATURE_GROUP_WEIGHTS,
     FEATURE_WEIGHT_PROFILES,
-    HYPERPARAMETER_ABLATION_PROFILES,
-    MAIN_WEIGHT_PROFILE,
     FEATURE_LIST_FILE,
+    HYPERPARAMETER_ABLATION_PROFILES,
+    LIVE_MIN_AVG_DOLLAR_VOLUME_3M,
+    LIVE_MIN_LIQUID_VOL_SCORE,
+    LIVE_REQUIRED_FEATURES,
     MAIN_MODEL_FILE,
     MAIN_SEEDS,
+    MAIN_WEIGHT_PROFILE,
     MODEL_DIR,
     MODEL_PARAMS,
     OUTPUT_DIR,
@@ -164,7 +167,6 @@ def training_curve_every_100_rounds(model: XGBClassifier, train, valid, test, fe
         for dataset, df in datasets:
             pred = predict(model, df, features, SCORE_COL, rounds=r)
             row = {"boosting_round": r, "dataset": dataset}
-            # Keep this compact: PR-AUC/AUC and Top-3 tail behavior are the most useful curve diagnostics.
             m = dataset_metrics(pred, SCORE_COL, dataset)
             for key in [
                 "prauc", "auc", "precision_at_top3", "top3_hit30_rate", "top3_hit50_rate",
@@ -213,12 +215,6 @@ def sort_strategy_table(out: pd.DataFrame) -> pd.DataFrame:
 
 
 def baseline_comparison(test_full: pd.DataFrame, test_pred: pd.DataFrame) -> pd.DataFrame:
-    """Compare XGB Top-3 with independent full-universe baseline Top-3 strategies.
-
-    XGB uses model predictions. Each baseline is recomputed independently on the
-    full clean test panel using only its own score column. The comparison table
-    is sorted by realized 1-month rebalanced total return first.
-    """
     rows = [strategy_return_row("xgb_boom_probability", test_pred, SCORE_COL, k=3)]
     baselines = {
         "baseline_mom_3m": "mom_3m",
@@ -239,11 +235,6 @@ def baseline_comparison(test_full: pd.DataFrame, test_pred: pd.DataFrame) -> pd.
 
 
 def feature_weight_ablation_summary(train, valid, test, features) -> pd.DataFrame:
-    """Train one seed per manual feature-weight profile and compare Top-3 outcomes.
-
-    This tests whether giving core_momentum a stronger XGBoost feature-sampling
-    prior improves realized Top-3 returns and right-tail capture.
-    """
     rows = []
     for profile_name, group_weights in FEATURE_WEIGHT_PROFILES.items():
         m = fit_xgb(train, valid, features, seed=42, params=MODEL_PARAMS, group_weights=group_weights)
@@ -265,18 +256,10 @@ def feature_weight_ablation_summary(train, valid, test, features) -> pd.DataFram
         row.update(strategy_return_row(profile_name, pt, score_col, k=3))
         row.update(topk_metrics(pt, score_col, TARGET_LABEL))
         rows.append(row)
-    out = pd.DataFrame(rows)
-    return sort_strategy_table(out)
+    return sort_strategy_table(pd.DataFrame(rows))
 
 
 def hyperparameter_ablation_summary(train, valid, test, features) -> pd.DataFrame:
-    """Compare deeper/slower XGBoost parameter profiles on the same features and weights.
-
-    This tests the user's hypothesis that more boosting rounds, deeper trees,
-    and a lower learning rate may learn finer right-tail boom patterns. It uses
-    the main feature-weight profile for all rows so the only changing factor is
-    the XGBoost hyperparameter profile.
-    """
     rows = []
     for profile_name, params in HYPERPARAMETER_ABLATION_PROFILES.items():
         m = fit_xgb(
@@ -291,7 +274,7 @@ def hyperparameter_ablation_summary(train, valid, test, features) -> pd.DataFram
         pt = predict(m, test, features, score_col)
         row = {
             "param_profile": profile_name,
-            "is_main_params": profile_name == "reference_2000_d4_lr0015",
+            "is_main_params": profile_name == "main_3000_lr0008",
             "n_estimators": params.get("n_estimators"),
             "max_depth": params.get("max_depth"),
             "learning_rate": params.get("learning_rate"),
@@ -329,10 +312,6 @@ def five_seed_stability_and_importance(train, valid, test, latest, features):
     latest_scores["five_seed_score_std"] = latest_scores[seed_cols].std(axis=1)
 
     imp_mat = pd.concat(importances, axis=1)
-    # Manual weights also have an original feature-order column named "index".
-    # Drop it before merging, then create a fresh rank index after sorting by
-    # five-seed mean importance. Otherwise pandas raises:
-    # ValueError: cannot insert index, already exists.
     weights = manual_feature_weight_table(features).drop(columns=["index"], errors="ignore")
     imp = pd.DataFrame({
         "feature": imp_mat.index,
@@ -375,12 +354,39 @@ def ablation_summary(train, valid, test, features, reference_top3: float | None 
     return out
 
 
+def apply_live_candidate_filter(out: pd.DataFrame) -> pd.DataFrame:
+    """Remove live symbols with missing core momentum or weak liquidity.
+
+    This filter is intentionally applied only to the live-candidate table. It is
+    not used for historical model training or backtest metrics, so it cannot
+    inflate the reported test performance. Its goal is to avoid cases like a
+    latest-month candidate with empty mom_3m/mom_6m being ranked first.
+    """
+    filtered = out.copy()
+    mask = pd.Series(True, index=filtered.index)
+    for col in LIVE_REQUIRED_FEATURES:
+        if col in filtered.columns:
+            mask &= filtered[col].notna()
+    if "liquid_vol_score" in filtered.columns:
+        mask &= filtered["liquid_vol_score"].fillna(0) >= LIVE_MIN_LIQUID_VOL_SCORE
+    if "avg_dollar_volume_3m" in filtered.columns:
+        mask &= filtered["avg_dollar_volume_3m"].fillna(0) >= LIVE_MIN_AVG_DOLLAR_VOLUME_3M
+    filtered["passes_live_filter"] = mask
+    passed = filtered[filtered["passes_live_filter"]].copy()
+    return passed if not passed.empty else filtered
+
+
 def make_latest_candidates(main_latest: pd.DataFrame, five_seed_latest: pd.DataFrame) -> pd.DataFrame:
     out = main_latest.copy()
     out = out.merge(five_seed_latest[["month", "ticker", "five_seed_avg_score", "five_seed_score_std"]], on=["month", "ticker"], how="left")
     out["ensemble_score"] = out[[SCORE_COL, "five_seed_avg_score"]].mean(axis=1)
-    keep_cols = ["month", "ticker", "ensemble_score", SCORE_COL, "five_seed_avg_score", "five_seed_score_std"]
-    context_cols = ["mom_6m", "mom_3m", "rel_mom_6m_vs_qqq", "liquid_vol_score", "avg_dollar_volume_3m", "large_move_freq_3m", "source_count", "source_weight_sum", "theme_count"]
+    out = apply_live_candidate_filter(out)
+    keep_cols = ["month", "ticker", "ensemble_score", SCORE_COL, "five_seed_avg_score", "five_seed_score_std", "passes_live_filter"]
+    context_cols = [
+        "mom_6m", "mom_5m", "mom_4m", "mom_3m", "core_mom_456_avg", "rel_mom_6m_vs_qqq",
+        "liquid_vol_score", "avg_dollar_volume_3m", "large_move_freq_3m", "source_count",
+        "source_weight_sum", "theme_count",
+    ]
     keep_cols += [c for c in context_cols if c in out.columns and c not in keep_cols]
     keep_cols = [c for c in keep_cols if c in out.columns]
     final = out.sort_values("ensemble_score", ascending=False).head(30)[keep_cols].copy()
@@ -392,7 +398,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--rounds", type=int, default=100, help="Deprecated: kept for workflow compatibility. Training curve uses every 100 boosting rounds.")
     parser.add_argument("--skip-ablation", action="store_true")
-    parser.add_argument("--skip-hyperparam-ablation", action="store_true", help="Skip the slower deep-tree hyperparameter ablation.")
+    parser.add_argument("--skip-hyperparam-ablation", action="store_true", help="Skip the slower local hyperparameter ablation.")
     parser.add_argument("--skip-rounds", action="store_true", help="Deprecated: kept for compatibility; ignored.")
     args = parser.parse_args()
 
@@ -460,6 +466,11 @@ def main():
         "latest_month": str(latest["month"].max().date()),
         "training_curve_rounds": TRAINING_CURVE_ROUNDS,
         "hyperparameter_ablation_profiles": HYPERPARAMETER_ABLATION_PROFILES,
+        "live_candidate_filter": {
+            "required_features": LIVE_REQUIRED_FEATURES,
+            "min_liquid_vol_score": LIVE_MIN_LIQUID_VOL_SCORE,
+            "min_avg_dollar_volume_3m": LIVE_MIN_AVG_DOLLAR_VOLUME_3M,
+        },
     }
     OUTPUT_FILES["metrics_json"].write_text(json.dumps(metrics_json, indent=2), encoding="utf-8")
     print("Training complete. Key outputs written to outputs/ and models/.")

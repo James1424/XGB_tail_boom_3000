@@ -8,10 +8,14 @@ import pandas as pd
 from .model_config import MAIN_WEIGHT_PROFILE, MODEL_PARAMS, OUTPUT_FILES, README_FILE, TARGET_LABEL
 
 PERCENT_HINTS = (
-    "return", "rate", "precision", "hit", "probability", "score", "weight", "mean", "std", "min", "max", "importance",
+    "return", "rate", "precision", "hit", "probability", "score", "weight", "mean", "std", "importance",
 )
-RAW_FLOAT_COLUMNS = {"prauc", "auc", "feature_weight"}
-INTEGER_COLUMNS = {"rank", "index", "seed", "months", "rows", "positive_rows", "boosting_round", "dropped_features", "kept_features", "top3_rows", "top5_rows", "top10_rows", "feature_count", "train_rows", "valid_rows", "test_rows"}
+RAW_FLOAT_COLUMNS = {"prauc", "auc", "feature_weight", "max_depth", "min_child_weight"}
+INTEGER_COLUMNS = {
+    "rank", "index", "seed", "months", "rows", "positive_rows", "boosting_round", "dropped_features",
+    "kept_features", "top3_rows", "top5_rows", "top10_rows", "feature_count", "train_rows",
+    "valid_rows", "test_rows", "n_estimators", "max_depth", "min_child_weight",
+}
 
 
 def read_csv(path: Path) -> pd.DataFrame:
@@ -82,13 +86,6 @@ def main():
     weight_ablation = read_csv(OUTPUT_FILES["feature_weight_ablation"])
     hyperparam_ablation = read_csv(OUTPUT_FILES["hyperparameter_ablation"])
 
-    metrics = {}
-    if OUTPUT_FILES["metrics_json"].exists():
-        try:
-            metrics = json.loads(OUTPUT_FILES["metrics_json"].read_text(encoding="utf-8"))
-        except Exception:
-            metrics = {}
-
     text = f"""# Integrated ETF Tail Boom Prediction Project
 
 This repository builds the ETF/index monthly panel and immediately trains a right-tail XGBoost boom detector in the same workflow. Large panel and prediction files are uploaded as GitHub Actions artifacts; README reports, compact CSV summaries, and the model JSON are committed to the repository.
@@ -142,21 +139,21 @@ The main model is an XGBoost classifier with reference-downweighted sample weigh
 
 ## Latest live boom candidates
 
-Latest month candidates are ranked by an ensemble of the main model and five-seed average score.
+Latest month candidates are ranked by an ensemble of the main model and five-seed average score. A live sanity filter removes rows with missing core momentum or weak liquidity before ranking the displayed candidates.
 
-{md_table(latest, max_rows=30, cols=['rank','month','ticker','ensemble_score','xgb_boom_probability','five_seed_avg_score','five_seed_score_std','mom_6m','mom_3m','rel_mom_6m_vs_qqq','liquid_vol_score','avg_dollar_volume_3m'])}
+{md_table(latest, max_rows=30, cols=['rank','month','ticker','passes_live_filter','ensemble_score','xgb_boom_probability','five_seed_avg_score','five_seed_score_std','mom_6m','mom_5m','mom_4m','mom_3m','core_mom_456_avg','rel_mom_6m_vs_qqq','liquid_vol_score','avg_dollar_volume_3m'])}
 
 ## Feature weight profile ablation
 
-This section compares manual XGBoost `feature_weights` profiles. The heavier profiles test whether the strong standalone 4m / 5m / 6m / 456 momentum baselines should receive a much stronger feature-sampling prior. The table is sorted by `total_return_1m_rebalanced`, then monthly return, then future max return.
+This section compares manual XGBoost `feature_weights` profiles around the new `core_momentum_aggressive_1` main profile. The local search gives even stronger prior to `mom_5m`, `mom_4m`, and `core_mom_456_avg` while downweighting non-momentum context. The table is sorted by realized strategy performance.
 
-{md_table(weight_ablation, max_rows=20, cols=['weight_profile','is_main_profile','core_momentum_group_weight','mom_4m_weight','mom_5m_weight','mom_6m_weight','core_mom_456_avg_weight','mom_6m_acceleration_weight','months','total_return_1m_rebalanced','annualized_return_1m_rebalanced','avg_monthly_return_1m','avg_future_max_return_1_3m','avg_boom_hit_rate','prauc','auc','precision_at_top3','top3_hit30_rate','top3_hit50_rate','monthly_any_top3_hit50_rate'])}
+{md_table(weight_ablation, max_rows=20, cols=['weight_profile','is_main_profile','core_momentum_group_weight','mom_4m_weight','mom_5m_weight','mom_6m_weight','core_mom_456_avg_weight','mom_6m_acceleration_weight','relative_strength_weight','volatility_frequency_weight','etf_source_weight','months','total_return_1m_rebalanced','annualized_return_1m_rebalanced','avg_monthly_return_1m','avg_future_max_return_1_3m','avg_boom_hit_rate','prauc','auc','precision_at_top3','top3_hit30_rate','top3_hit50_rate','monthly_any_top3_hit50_rate'])}
 
-## Hyperparameter ablation: deeper trees, more rounds, lower learning rate
+## Hyperparameter ablation: local search around 3000 rounds
 
-This section tests whether a deeper and slower XGBoost can learn subtler pre-boom interactions. All rows use the same features and the same main feature-weight profile; only the XGBoost hyperparameters change. The table is sorted by realized strategy performance.
+This section tests smaller changes around the 3000-round region and learning rates near 0.008. All rows use the same features and the same main feature-weight profile; only the XGBoost hyperparameters change.
 
-{md_table(hyperparam_ablation, max_rows=10, cols=['param_profile','is_main_params','n_estimators','max_depth','learning_rate','min_child_weight','reg_alpha','reg_lambda','subsample','colsample_bytree','months','total_return_1m_rebalanced','annualized_return_1m_rebalanced','avg_monthly_return_1m','avg_future_max_return_1_3m','avg_boom_hit_rate','prauc','auc','precision_at_top3','top3_hit30_rate','top3_hit50_rate','monthly_any_top3_hit50_rate'])}
+{md_table(hyperparam_ablation, max_rows=20, cols=['param_profile','is_main_params','n_estimators','max_depth','learning_rate','min_child_weight','reg_alpha','reg_lambda','subsample','colsample_bytree','months','total_return_1m_rebalanced','annualized_return_1m_rebalanced','avg_monthly_return_1m','avg_future_max_return_1_3m','avg_boom_hit_rate','prauc','auc','precision_at_top3','top3_hit30_rate','top3_hit50_rate','monthly_any_top3_hit50_rate'])}
 
 ## Strategy and baseline comparison
 
