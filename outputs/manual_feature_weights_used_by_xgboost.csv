@@ -60,9 +60,9 @@ index,feature,tier,feature_group,feature_weight
 59,ret_lag_6m_std,tier_4_downweighted_context,unclassified,0.85
 60,mom_2m,tier_4_downweighted_context,other_momentum,0.8
 61,ma20_slope_1m,tier_4_downweighted_context,trend,0.7
-62,volume_ratio_3m,tier_4_downweighted_context,volume_flow,0.65
-63,volatility_3m,tier_4_downweighted_context,risk_drawdown,0.65
-64,volatility_1m_to_3m,tier_4_downweighted_context,risk_drawdown,0.65
+62,volatility_3m,tier_4_downweighted_context,risk_drawdown,0.65
+63,volatility_1m_to_3m,tier_4_downweighted_context,risk_drawdown,0.65
+64,volume_ratio_3m,tier_4_downweighted_context,volume_flow,0.65
 65,avg_abs_daily_return_3m,tier_4_downweighted_context,volatility_frequency,0.9
 66,ma10_slope_1m,tier_4_downweighted_context,trend,0.7
 67,drawdown_3m,tier_4_downweighted_context,risk_drawdown,0.65
