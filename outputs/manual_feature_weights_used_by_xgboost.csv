@@ -16,9 +16,9 @@ index,feature,tier,feature_group,feature_weight
 15,return_vol_ratio_6m,tier_4_downweighted_context,risk_drawdown,0.65
 16,drawdown_12m,tier_4_downweighted_context,risk_drawdown,0.65
 17,drawdown_12m_abs,tier_4_downweighted_context,risk_drawdown,0.65
-18,volume_change_3m,tier_4_downweighted_context,volume_flow,0.65
-19,dollar_volume_change_3m,tier_4_downweighted_context,liquidity_size,0.85
-20,ma100_slope_1m,tier_4_downweighted_context,trend,0.7
+18,ma100_slope_1m,tier_4_downweighted_context,trend,0.7
+19,volume_change_3m,tier_4_downweighted_context,volume_flow,0.65
+20,dollar_volume_change_3m,tier_4_downweighted_context,liquidity_size,0.85
 21,volume_ma3_to_12m,tier_4_downweighted_context,volume_flow,0.65
 22,mom_5m,tier_1_core_tail,core_momentum,24.0
 23,core_mom_456_std,tier_1_core_tail,core_momentum,5.0
@@ -37,8 +37,8 @@ index,feature,tier,feature_group,feature_weight
 36,ret_lag_3m,tier_4_downweighted_context,unclassified,0.85
 37,rel_mom_3m_vs_qqq,tier_4_downweighted_context,other_momentum,0.8
 38,mom_3m,tier_4_downweighted_context,other_momentum,0.8
-39,return_vol_ratio_3m,tier_4_downweighted_context,risk_drawdown,0.65
-40,volatility_6m,tier_4_downweighted_context,risk_drawdown,0.65
+39,volatility_6m,tier_4_downweighted_context,risk_drawdown,0.65
+40,return_vol_ratio_3m,tier_4_downweighted_context,risk_drawdown,0.65
 41,volatility_1m_to_6m,tier_4_downweighted_context,risk_drawdown,0.65
 42,volatility_3m_to_6m,tier_4_downweighted_context,risk_drawdown,0.65
 43,avg_abs_daily_return_6m,tier_4_downweighted_context,volatility_frequency,0.9
